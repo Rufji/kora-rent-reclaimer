@@ -105,6 +105,48 @@ Option C: Simulation (Test "Trash" Creation)
   OPERATOR_PRIVATE_KEY          Array [12, 45, ...] or Base58 string of the wallet.
   DRY_RUN                       true = Read-only simulation. false = Real transactions.
   DISCORD_WEBHOOK_URL           (Optional) URL to receive "Rich Embed" alerts.
+  KORA_URL                      (Optional) HTTP URL for an external Kora service that can supply sponsored-account lists.
+  KORA_API_KEY                  (Optional) Bearer token for the Kora service (keep secret).
+  KORA_REMOTE_EXECUTE           (optional) true = ask remote Kora to perform reclaims; false = perform reclaims locally.
+
+
+Example .env (do NOT commit):
+
+```
+RPC_URL=https://api.mainnet-beta.solana.com
+OPERATOR_PRIVATE_KEY=[1,2,3,...]
+OPERATOR_PUBLIC_KEY=YourOperatorPubkeyHere
+DRY_RUN=true
+KORA_URL=http://localhost:8080
+KORA_API_KEY=
+KORA_REMOTE_EXECUTE=false
+RECLAIMER_DB=./reclaimer.db
+```
+
+Security: add `.env` and any DB files to `.gitignore`. See **Safety & policy defaults** above.
+
+### Safety enforcement (automatic)
+- The reclaimer **requires >= 2 successful dry-runs** and an explicit operator **approval** before performing an automatic live reclaim for a registered ATA.
+- Per-run and daily budget caps are enforced by environment variables:
+  - `PER_RUN_ACCOUNT_LIMIT` (default 50)
+  - `DAILY_LAMPORT_LIMIT` (default ~2 SOL)
+  - `MIN_DRY_RUNS_FOR_AUTO` (default 2)
+- Orphan accounts (no registered owner) are blocked and flagged for manual review.
+
+### Approval & audit CLI
+- List pending approvals:
+  - `npm run list-approvals`
+- Approve an ATA (after at least two dry-runs):
+  - `npm run approve-ata -- <id>`
+
+### Migration
+After pulling changes, run:
+```
+npm run db:migrate
+```
+This will add approval and audit columns to the DB (idempotent).
+
+**DO NOT** enable `DRY_RUN=false` or `KORA_REMOTE_EXECUTE=true` until you've inspected dry-run results and approved the specific ATA(s).
   
   
   

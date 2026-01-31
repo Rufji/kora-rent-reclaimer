@@ -5,25 +5,42 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "scan": "ts-node bot.ts",
-    "start": "ts-node dashboard.ts"
+    "start": "ts-node dashboard.ts",
+    "mock-kora": "ts-node scripts/mock-kora-server.ts",
+    "reclaim:one": "ts-node scripts/reclaim-one.ts",
+    "reclaimer:dry": "ts-node -O '{\"module\":\"commonjs\"}' src/kora-reclaimer.ts",
+    "reclaimer:run": "cross-env DRY_RUN=false ts-node scripts/reclaim-one.ts --ata dummy --run",
+    "approve-ata": "ts-node scripts/approve-ata.ts",
+    "list-approvals": "ts-node scripts/list-pending-approvals.ts",
+    "db:migrate": "ts-node scripts/db-migrate.ts",
+    "ci-smoke": "ts-node scripts/ci-smoke.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@solana/kora": "^0.1.2",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
     "@types/express": "^5.0.6",
+    "better-sqlite3": "^12.6.2",
+    "body-parser": "^2.2.2",
     "bs58": "^6.0.0",
     "chalk": "^5.6.2",
     "cli-table3": "^0.6.5",
+    "cross-env": "^10.1.0",
     "dotenv": "^17.2.3",
     "ejs": "^4.0.1",
     "express": "^5.2.1",
     "figlet": "^1.9.4",
     "node-fetch": "^2.7.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "yargs": "^18.0.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "cors": "^2.8.6"
   }
 }

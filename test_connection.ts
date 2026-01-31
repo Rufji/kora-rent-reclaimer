@@ -1,6 +1,7 @@
 import { Connection, Keypair } from '@solana/web3.js';
 import * as dotenv from 'dotenv';
 import chalk from 'chalk';
+import fetch from 'node-fetch';
 
 // Load the .env file
 dotenv.config();
@@ -15,6 +16,17 @@ async function main() {
     try {
         const version = await connection.getVersion();
         console.log(chalk.green(`✅ Success! Connected to Solana node version: ${version['solana-core']}`));
+
+        // Optional: check external Kora service if configured
+        if (process.env.KORA_URL) {
+            try {
+                const res = await fetch(`${process.env.KORA_URL.replace(/\/$/, '')}/health`);
+                if (res.ok) console.log(chalk.green(`✅ Kora service reachable: ${process.env.KORA_URL}`));
+                else console.log(chalk.yellow(`⚠️ Kora service responded ${res.status}`));
+            } catch (err) {
+                console.log(chalk.red(`❌ Failed to reach Kora at ${process.env.KORA_URL}: ${String(err)}`));
+            }
+        }
     } catch (error) {
         console.log(chalk.red("❌ Failed to connect to Solana. check your internet connection."));
         return;

@@ -14,12 +14,17 @@ import * as dotenv from 'dotenv';
 import chalk from 'chalk';
 import figlet from 'figlet';
 import Table from 'cli-table3';
+import * as KoraClient from './koraClient';
 
 // 1. SETUP & CONFIGURATION
 dotenv.config();
 const DRY_RUN = process.env.DRY_RUN === 'true';
 const RPC_URL = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com';
 const connection = new Connection(RPC_URL, 'confirmed');
+
+// Kora integration
+const USE_KORA = !!process.env.KORA_URL;
+const KORA_REMOTE_EXECUTE = process.env.KORA_REMOTE_EXECUTE === 'true';
 
 // Load Operator Wallet
 const secretKey = Uint8Array.from(JSON.parse(process.env.OPERATOR_PRIVATE_KEY || '[]'));
@@ -138,8 +143,24 @@ async function main() {
     console.log('===============================================================');
 
     try {
-        const candidates = await fetchSponsoredAccounts(operator.publicKey);
-        console.log(chalk.cyan(`\n🔎 Found ${candidates.length} candidate accounts.`));
+        let candidates = [] as any[];
+
+        if (USE_KORA) {
+            process.stdout.write(chalk.blue('\n🔍 Asking configured Kora service for sponsored accounts... '));
+            try {
+                const list = await KoraClient.listSponsoredAccounts(operator.publicKey.toBase58());
+                candidates = (list || []).map((s: string) => new PublicKey(s));
+                console.log(chalk.cyan(`\n🔎 Kora returned ${candidates.length} candidate accounts.`));
+            } catch (err) {
+                console.log(chalk.yellow('\n⚠️ Kora request failed — falling back to on-chain scanning.'));
+                candidates = await fetchSponsoredAccounts(operator.publicKey);
+                console.log(chalk.cyan(`\n🔎 Found ${candidates.length} candidate accounts (on-chain).`));
+            }
+        } else {
+            const _c = await fetchSponsoredAccounts(operator.publicKey);
+            candidates = _c;
+            console.log(chalk.cyan(`\n🔎 Found ${candidates.length} candidate accounts.`));
+        }
 
         if (candidates.length === 0) {
             console.log(chalk.yellow("No sponsored accounts found in recent history."));
@@ -158,7 +179,17 @@ async function main() {
             if (analysis.status === 'RECLAIM') {
                 stats.reclaimable++;
                 stats.rentValue += analysis.lamports;
-                actionResult = await reclaimRent(acc, analysis.lamports);
+
+                if (USE_KORA && KORA_REMOTE_EXECUTE) {
+                    try {
+                        const resp = await KoraClient.instructReclaim(acc.toBase58());
+                        actionResult = chalk.green(`REMOTE: ${JSON.stringify(resp)}`);
+                    } catch (err: any) {
+                        actionResult = chalk.red(`REMOTE FAILED: ${String(err)}`);
+                    }
+                } else {
+                    actionResult = await reclaimRent(acc, analysis.lamports);
+                }
             } else {
                 stats.skipped++;
             }

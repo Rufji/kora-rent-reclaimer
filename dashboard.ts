@@ -3,6 +3,7 @@ import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction 
 import { TOKEN_PROGRAM_ID, createCloseAccountInstruction, unpackAccount } from '@solana/spl-token';
 import * as dotenv from 'dotenv';
 import path from 'path';
+import * as KoraClient from './koraClient';
 
 dotenv.config();
 
@@ -12,6 +13,11 @@ const PORT = 3000;
 const DRY_RUN = process.env.DRY_RUN === 'true';
 const RPC_URL = process.env.RPC_URL || 'https://api.devnet.solana.com';
 const connection = new Connection(RPC_URL, 'confirmed');
+
+// Kora integration flags
+const USE_KORA = !!process.env.KORA_URL;
+const KORA_REMOTE_EXECUTE = process.env.KORA_REMOTE_EXECUTE === 'true';
+
 
 // LOAD WALLET
 const secretKey = Uint8Array.from(JSON.parse(process.env.OPERATOR_PRIVATE_KEY || '[]'));
@@ -53,10 +59,13 @@ async function sendDiscordAlert(title: string, description: string, color: numbe
     }
 }
 // GLOBAL STATE
-let dataVersion = Date.now(); // <--- THIS IS THE MISSING VARIABLE
-let dashboardData = {
+let dataVersion = Date.now();
+let dashboardData: any = {
     operator: operator.publicKey.toBase58(),
     dryRun: DRY_RUN,
+    useKora: USE_KORA,
+    koraRemoteExecute: KORA_REMOTE_EXECUTE,
+    koraStatus: { ok: false },
     stats: { scanned: 0, reclaimable: 0, rentValue: 0 },
     results: [] as any[]
 };
@@ -88,12 +97,28 @@ async function performScan() {
             } catch (e) {}
         }
         
+        // ensure unique on-chain candidates
         const uniqueCandidates = [...new Set(candidates.map(k => k.toBase58()))].map(s => new PublicKey(s));
 
-        for (const acc of uniqueCandidates) {
+        // merge Kora-provided candidates when available (non-blocking)
+        let merged = uniqueCandidates.slice();
+        if (USE_KORA) {
+            try {
+                const list = await KoraClient.listSponsoredAccounts(operator.publicKey.toBase58());
+                dashboardData.koraStatus = { ok: true, count: list.length };
+                for (const s of list) {
+                    const p = new PublicKey(s);
+                    if (!merged.find(u => u.equals(p))) merged.push(p);
+                }
+            } catch (err) {
+                dashboardData.koraStatus = { ok: false, error: String(err) };
+            }
+        }
+
+        for (const acc of merged) {
             await sleep(50);
             stats.scanned++;
-            let row = { address: acc.toBase58(), status: 'UNKNOWN', reason: '', lamports: 0, canReclaim: false };
+            let row = { address: acc.toBase58(), status: 'UNKNOWN', reason: '', lamports: 0, canReclaim: false, source: 'onchain' };
             
             try {
                 const info = await connection.getAccountInfo(acc);
@@ -161,14 +186,27 @@ async function performReclaim() {
                     reclaimedCount++;
                     reclaimedValue += row.lamports;
                 } else {
-                    const tx = new Transaction().add(createCloseAccountInstruction(acc, operator.publicKey, operator.publicKey));
-                    await sendAndConfirmTransaction(connection, tx, [operator]);
-                    row.status = 'RECLAIMED';
-                    row.reason = '✅ RECLAIMED (Tx Sent)';
-                    reclaimedCount++;
-                    reclaimedValue += row.lamports;
+                    if (USE_KORA && KORA_REMOTE_EXECUTE) {
+                        try {
+                            const resp = await KoraClient.instructReclaim(row.address);
+                            row.status = 'RECLAIMED';
+                            row.reason = `REMOTE: ${resp.txSig || JSON.stringify(resp)}`;
+                            reclaimedCount++;
+                            reclaimedValue += row.lamports;
+                        } catch (err) {
+                            row.status = 'ERROR';
+                            row.reason = `REMOTE FAILED: ${String(err)}`;
+                        }
+                    } else {
+                        const tx = new Transaction().add(createCloseAccountInstruction(acc, operator.publicKey, operator.publicKey));
+                        await sendAndConfirmTransaction(connection, tx, [operator]);
+                        row.status = 'RECLAIMED';
+                        row.reason = '✅ RECLAIMED (Tx Sent)';
+                        reclaimedCount++;
+                        reclaimedValue += row.lamports;
+                    }
                 }
-                row.canReclaim = false; 
+                row.canReclaim = false;
             } catch (e) {
                 row.status = 'ERROR';
                 row.reason = 'Tx Failed';
